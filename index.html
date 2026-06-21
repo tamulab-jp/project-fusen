@@ -98,11 +98,54 @@ input::placeholder{color:#6b7c8a}
 .proj-actions .del-proj{background:none;border:none;color:var(--alert);font-size:13px}
 .muted{font-size:12px;color:var(--sub);margin-top:6px;line-height:1.5}
 .loading{text-align:center;color:var(--sub);padding:80px 20px;font-size:14px}
+/* ログイン画面 */
+#auth{position:fixed;inset:0;background:var(--bg);z-index:100;display:none;
+  flex-direction:column;justify-content:center;align-items:center;padding:24px}
+#auth.on{display:flex}
+.auth-box{width:100%;max-width:360px}
+.auth-logo{font-size:24px;font-weight:800;text-align:center;margin-bottom:4px;display:flex;
+  align-items:center;justify-content:center;gap:8px}
+.auth-logo .dot{width:11px;height:11px;border-radius:2px;background:var(--accent);transform:rotate(45deg)}
+.auth-sub{font-size:13px;color:var(--sub);text-align:center;margin-bottom:28px}
+.auth-box label{display:block;font-size:13px;color:var(--sub);margin:14px 0 5px}
+.auth-box input{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);
+  border-radius:10px;padding:14px 12px;font-size:16px}
+.auth-btn{width:100%;border:none;border-radius:10px;padding:15px;font-size:16px;font-weight:700;
+  background:var(--accent);color:#2a2410;margin-top:22px}
+.auth-btn:active{opacity:.85}
+.auth-btn:disabled{opacity:.5}
+.auth-switch{text-align:center;margin-top:18px;font-size:14px;color:var(--sub)}
+.auth-switch button{background:none;border:none;color:var(--accent);font-size:14px;font-weight:700;text-decoration:underline}
+.auth-msg{margin-top:16px;font-size:13px;text-align:center;min-height:18px}
+.auth-msg.err{color:var(--alert)} .auth-msg.ok{color:var(--done)}
+.auth-foot{position:fixed;bottom:calc(env(safe-area-inset-bottom) + 14px);left:0;right:0;
+  text-align:center;font-size:11px;color:#5a6a77}
 </style>
 </head>
 <body>
+<!-- ログイン画面 -->
+<div id="auth">
+  <div class="auth-box">
+    <div class="auth-logo"><span class="dot"></span>プロジェクト付箋</div>
+    <div class="auth-sub" id="auth-mode-sub">ログインして始めましょう</div>
+    <label>メールアドレス</label>
+    <input type="email" id="auth-email" autocomplete="email" placeholder="you@example.com">
+    <label>パスワード</label>
+    <input type="password" id="auth-pass" autocomplete="current-password" placeholder="6文字以上" onkeydown="if(event.key==='Enter')doAuth()">
+    <button class="auth-btn" id="auth-submit" onclick="doAuth()">ログイン</button>
+    <div class="auth-msg" id="auth-msg"></div>
+    <div class="auth-switch">
+      <span id="auth-switch-text">アカウントをお持ちでない方は</span>
+      <button onclick="toggleAuthMode()" id="auth-switch-btn">新規登録</button>
+    </div>
+  </div>
+  <div class="auth-foot">tamulab</div>
+</div>
+
 <header>
-  <div class="h-title"><span class="dot"></span>プロジェクト付箋</div>
+  <div class="h-title"><span class="dot"></span>プロジェクト付箋
+    <button onclick="logout()" style="margin-left:auto;background:var(--panel2);border:1px solid var(--line);color:var(--sub);font-size:12px;padding:5px 11px;border-radius:16px">ログアウト</button>
+  </div>
   <div class="h-sub">やり残しと、今日の日課が、ひと目でわかる
     <span class="sync" id="sync">●</span></div>
 </header>
@@ -168,15 +211,90 @@ function dateKey(off){const d=new Date();d.setDate(d.getDate()-off);return d.get
 function esc(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function setSync(cls,txt){const e=document.getElementById('sync');e.className='sync '+cls;e.textContent=txt||'●'}
 
-/* ---------- 認証（匿名）＆初期ロード ---------- */
+/* ---------- 認証（メール＋パスワード）＆初期ロード ---------- */
+let authMode='login';  // 'login' or 'signup'
+
 async function init(){
   setSync('busy','接続中');
-  let {data:{session}}=await sb.auth.getSession();
-  if(!session){
-    const {error}=await sb.auth.signInAnonymously();
-    if(error){setSync('err','接続失敗');document.getElementById('loading').textContent='接続に失敗しました。通信環境を確認してください。';return}
+  const {data:{session}}=await sb.auth.getSession();
+  if(session){
+    // ログイン済み → アプリ起動
+    showApp();
+    await loadAll();
+  }else{
+    // 未ログイン → ログイン画面
+    showAuth();
   }
-  await loadAll();
+}
+
+function showAuth(){
+  document.getElementById('auth').classList.add('on');
+  document.getElementById('loading').style.display='none';
+  setSync('','●');
+}
+function showApp(){
+  document.getElementById('auth').classList.remove('on');
+}
+
+function toggleAuthMode(){
+  authMode=(authMode==='login')?'signup':'login';
+  const isLogin=authMode==='login';
+  document.getElementById('auth-mode-sub').textContent=isLogin?'ログインして始めましょう':'アカウントを新規作成します';
+  document.getElementById('auth-submit').textContent=isLogin?'ログイン':'新規登録する';
+  document.getElementById('auth-switch-text').textContent=isLogin?'アカウントをお持ちでない方は':'すでにアカウントをお持ちの方は';
+  document.getElementById('auth-switch-btn').textContent=isLogin?'新規登録':'ログイン';
+  document.getElementById('auth-pass').setAttribute('autocomplete',isLogin?'current-password':'new-password');
+  setAuthMsg('','');
+}
+function setAuthMsg(cls,txt){const e=document.getElementById('auth-msg');e.className='auth-msg '+cls;e.textContent=txt}
+
+async function doAuth(){
+  const email=document.getElementById('auth-email').value.trim();
+  const pass=document.getElementById('auth-pass').value;
+  const btn=document.getElementById('auth-submit');
+  if(!email||!pass){setAuthMsg('err','メールアドレスとパスワードを入力してください');return}
+  if(pass.length<6){setAuthMsg('err','パスワードは6文字以上にしてください');return}
+  btn.disabled=true;setAuthMsg('','処理中…');
+  try{
+    let error;
+    if(authMode==='signup'){
+      ({error}=await sb.auth.signUp({email,password:pass}));
+      if(error)throw error;
+      // Confirm email OFF の場合は signUp で即セッションが張られる
+    }else{
+      ({error}=await sb.auth.signInWithPassword({email,password:pass}));
+      if(error)throw error;
+    }
+    const {data:{session}}=await sb.auth.getSession();
+    if(!session){
+      // メール確認ONなどでセッションが張られなかった場合
+      setAuthMsg('ok','登録しました。ログインしてください');
+      authMode='login';toggleAuthMode();toggleAuthMode();
+      btn.disabled=false;return;
+    }
+    setAuthMsg('ok','ログインしました');
+    showApp();
+    await loadAll();
+  }catch(e){
+    let msg='ログインに失敗しました';
+    const m=(e&&e.message)||'';
+    if(m.includes('Invalid login'))msg='メールアドレスかパスワードが違います';
+    else if(m.includes('already registered')||m.includes('already been registered'))msg='このメールアドレスは登録済みです。ログインしてください';
+    else if(m.includes('valid email'))msg='メールアドレスの形式が正しくありません';
+    else if(m)msg=m;
+    setAuthMsg('err',msg);
+  }
+  btn.disabled=false;
+}
+
+async function logout(){
+  if(!confirm('ログアウトしますか？'))return;
+  await sb.auth.signOut();
+  state=[];render();
+  document.getElementById('auth-email').value='';
+  document.getElementById('auth-pass').value='';
+  setAuthMsg('','');
+  showAuth();
 }
 
 async function loadAll(){
